@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lokalny TikTok</title>
+<style>
+  *{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;background:#000;color:#fff;font-family:system-ui,sans-serif;overflow:hidden}
+  #start{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;text-align:center}
+  #start h1{font-size:28px}
+  #start p{opacity:.7;max-width:320px;font-size:14px}
+  .btn{background:#fe2c55;color:#fff;border:0;border-radius:12px;padding:14px 22px;font-size:16px;font-weight:600}
+  .btn.alt{background:#2a2a2a}
+  #feed{position:fixed;inset:0;overflow-y:scroll;scroll-snap-type:y mandatory;display:none;scrollbar-width:none}
+  #feed::-webkit-scrollbar{display:none}
+  .item{position:relative;height:100vh;height:100dvh;scroll-snap-align:start;scroll-snap-stop:always;background:#000}
+  video{width:100%;height:100%;object-fit:contain;background:#000}
+  .side{position:absolute;right:12px;bottom:calc(120px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:18px;align-items:center}
+  .side button{background:rgba(0,0,0,.45);border:0;color:#fff;border-radius:50%;width:52px;height:52px;font-size:26px}
+  .fav.on{color:#fe2c55}
+  .title{position:absolute;left:14px;right:90px;bottom:calc(28px + env(safe-area-inset-bottom));font-size:14px;text-shadow:0 1px 4px #000;word-break:break-word}
+  .bar{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.25)}
+  .bar i{display:block;height:100%;width:0;background:#fff}
+  #top{position:fixed;top:0;left:0;right:0;display:none;justify-content:center;gap:24px;padding:calc(12px + env(safe-area-inset-top)) 0 12px;z-index:5;background:linear-gradient(#0008,transparent)}
+  #top button{background:none;border:0;color:#fff;opacity:.6;font-size:16px;font-weight:600;padding:6px 4px}
+  #top button.on{opacity:1;border-bottom:2px solid #fff}
+  #empty{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+  #more{position:fixed;top:calc(10px + env(safe-area-inset-top));right:10px;z-index:6;background:none;border:0;color:#fff;font-size:22px;display:none}
+</style>
+</head>
+<body>
+
+<div id="start">
+  <h1>🎬 Lokalny TikTok</h1>
+  <p>Wybierz filmy z telefonu. Wszystko działa offline, nic nie jest nigdzie wysyłane.</p>
+  <button class="btn" id="pickFiles">Wybierz filmy</button>
+  <p style="font-size:12px">Ulubione zapamiętują się po nazwie pliku. Przy kolejnym otwarciu wybierz te same filmy.</p>
+</div>
+
+<input type="file" id="files" accept="video/*" multiple hidden>
+
+<div id="top"><button id="tAll" class="on">Wszystkie</button><button id="tFav">Ulubione</button></div>
+<button id="more">＋</button>
+<div id="empty">Brak ulubionych</div>
+<div id="feed"></div>
+
+<script>
+const $=id=>document.getElementById(id);
+let all=[], mode='all', muted=false, shuffled=true;
+const key=f=>f.name+'|'+f.size;
+let favs=new Set();
+try{favs=new Set(JSON.parse(localStorage.getItem('favs')||'[]'))}catch(e){}
+let seen=new Set();try{seen=new Set(JSON.parse(localStorage.getItem('seen')||'[]'))}catch(e){}
+const saveSeen=()=>{try{localStorage.setItem('seen',JSON.stringify([...seen]))}catch(e){}};
+const save=()=>{try{localStorage.setItem('favs',JSON.stringify([...favs]))}catch(e){}};
+
+$('pickFiles').onclick=()=>$('files').click();
+$('more').onclick=()=>$('files').click();
+$('files').onchange=e=>load(e.target.files);
+$('tAll').onclick=()=>setMode('all');
+$('tFav').onclick=()=>setMode('fav');
+
+function load(list){
+  const vids=[...list].filter(f=>f.type.startsWith('video/')||/\.(mp4|webm|mov|mkv|m4v|3gp)$/i.test(f.name));
+  if(!vids.length)return;
+  const have=new Set(all.map(v=>key(v.file)));
+  vids.forEach(f=>{if(!have.has(key(f)))all.push({file:f,url:URL.createObjectURL(f)})});
+  all.sort(()=>Math.random()-.5); // losowa kolejność jak w TikToku
+  $('start').style.display='none';
+  $('top').style.display='flex';
+  $('more').style.display='block';
+  render();
+}
+function setMode(m){
+  mode=m;
+  $('tAll').classList.toggle('on',m==='all');
+  $('tFav').classList.toggle('on',m==='fav');
+  render();
+}
+function render(){
+  const feed=$('feed');
+  feed.querySelectorAll('video').forEach(v=>{v.pause();v.removeAttribute('src');v.load()});
+  feed.innerHTML='';
+  const items=all.filter(v=>mode==='all'?!seen.has(key(v.file)):favs.has(key(v.file)));
+  $('empty').innerHTML=mode==='fav'?'Brak ulubionych':'Wszystko obejrzane<br><br><button class="btn" id="rs">Zacznij od nowa</button>';
+  if($('rs'))$('rs').onclick=()=>{seen.clear();saveSeen();render()};
+  $('empty').style.display=items.length?'none':'flex';
+  feed.style.display=items.length?'block':'none';
+  items.forEach(v=>{
+    const d=document.createElement('div');d.className='item';d.dataset.k=key(v.file);
+    d.innerHTML=`<video playsinline loop preload="metadata"></video>
+      <div class="side">
+        <button class="fav">♥</button>
+        <button class="mute">🔊</button>
+        <button class="spd">1x</button>
+      </div>
+      <div class="title"></div>
+      <div class="bar"><i></i></div>`;
+    const vid=d.querySelector('video');
+    vid.dataset.src=v.url; vid.muted=muted;
+    d.querySelector('.title').textContent=v.file.name.replace(/\.[^.]+$/,'');
+    const fb=d.querySelector('.fav');
+    fb.classList.toggle('on',favs.has(key(v.file)));
+    fb.onclick=e=>{e.stopPropagation();const k=key(v.file);
+      favs.has(k)?favs.delete(k):favs.add(k);save();
+      fb.classList.toggle('on',favs.has(k));};
+    const mb=d.querySelector('.mute');mb.textContent=muted?'🔇':'🔊';
+    mb.onclick=e=>{e.stopPropagation();muted=!muted;
+      document.querySelectorAll('video').forEach(x=>x.muted=muted);
+      document.querySelectorAll('.mute').forEach(x=>x.textContent=muted?'🔇':'🔊');};
+    const sb=d.querySelector('.spd'),speeds=[1,1.5,2,0.5];
+    sb.onclick=e=>{e.stopPropagation();
+      const i=(speeds.indexOf(vid.playbackRate)+1)%speeds.length;
+      vid.playbackRate=speeds[i];sb.textContent=speeds[i]+'x';};
+    d.onclick=()=>vid.paused?vid.play():vid.pause();
+    // dwuklik = ulubione
+    let last=0;d.addEventListener('touchend',e=>{
+      if(e.target.closest('.side'))return;
+      const n=Date.now();if(n-last<300){fb.click();}last=n;});
+    vid.ontimeupdate=()=>{d.querySelector('.bar i').style.width=(vid.currentTime/vid.duration*100||0)+'%'};
+    feed.appendChild(d);
+  });
+  observe();
+}
+let io;
+function observe(){
+  if(io)io.disconnect();
+  io=new IntersectionObserver(es=>{
+    es.forEach(en=>{
+      const v=en.target.querySelector('video');
+      if(en.isIntersecting&&en.intersectionRatio>.6){
+        if(!v.src)v.src=v.dataset.src;
+        if(mode==='all'){seen.add(en.target.dataset.k);saveSeen();}
+        v.muted=muted;
+        v.play().catch(()=>{v.muted=true;v.play().catch(()=>{})});
+        // wstępne ładowanie następnego
+        const nx=en.target.nextElementSibling?.querySelector('video');
+        if(nx&&!nx.src)nx.src=nx.dataset.src;
+      }else{
+        v.pause();
+        if(!en.isIntersecting&&v.src){v.currentTime=0}
+      }
+    });
+  },{root:$('feed'),threshold:[0,.6]});
+  document.querySelectorAll('.item').forEach(i=>io.observe(i));
+}
+</script>
+</body>
+</html>
